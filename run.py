@@ -12,8 +12,6 @@ from pathlib import Path
 
 
 class RoMaImageMatcher:
-    """A reusable class for RoMa image matching and visualization."""
-
     def __init__(self, coarse_res: int = 420, upsample_res: Tuple[int, int] = (648, 864)):
         """
         Initialize the RoMa image matcher.
@@ -60,17 +58,6 @@ class RoMaImageMatcher:
     def create_warp_visualization(self, x1: torch.Tensor,
                                         warp: torch.Tensor,
                                         certainty: torch.Tensor) -> torch.Tensor:
-        """
-        Create a visualization by warping image 1 into image 2's coordinate frame.
-
-        Args:
-            x1: First image tensor (C x H x W)
-            warp: Warp field from matching (shape: 1 x H x 2*W x 2 or similar)
-            certainty: Certainty map from matching (shape: H x 2*W)
-
-        Returns:
-            Visualization tensor of warped image 1 aligned to image 2 frame
-        """
         # Extract warp for image 1 -> image 2 (assuming warp has shape: (H, 2*W, 2))
         # According to your original code, the right half of warp corresponds to image 1 -> image 2 flow:
         # warp[:, W:, :2]  (shape: H x W x 2)
@@ -100,33 +87,57 @@ class RoMaImageMatcher:
         return vis_im
 
     def save_visualization(self, vis_tensor: torch.Tensor, save_path: str):
-        """
-        Save visualization tensor as image.
-
-        Args:
-            vis_tensor: Visualization tensor
-            save_path: Path to save the image
-        """
         # Ensure directory exists
         Path(save_path).parent.mkdir(parents=True, exist_ok=True)
         tensor_to_pil(vis_tensor, unnormalize=False).save(save_path)
 
 
+import time
+import zmq
+
+context = zmq.Context()
+socket = context.socket(zmq.REP)
+socket.bind("tcp://*:5555")
+
 def main():
-    # Create matcher instance
     model = RoMaImageMatcher(
         coarse_res=420,
         upsample_res=(648, 864)
     )
 
-    image1 = model.load_image("assets/sacre_coeur_A.jpg")
-    image2 = model.load_image("assets/sacre_coeur_B.jpg")
+    try:
+        while True:
+            # Receive the raw data
+            data = socket.recv()
 
-    warp, certainty, _ = model.match_images(image1, image2)
-    
-    x1 = model.image_to_tensor(image1)
-    vis = model.create_warp_visualization(x1, warp, certainty)
-    model.save_visualization(vis, "vis.jpg")
+            # Convert to NumPy array
+            arr = np.frombuffer(data, dtype=np.uint8)
+
+            # Check that the size matches
+            assert arr.size == 2 * 3 * 648 * 864, f"Unexpected data size: {arr.size}"
+
+            # Reshape to (2, 648, 864, 3)
+            arr = arr.reshape(2, 648, 864, 3)
+
+            # Split into image1 and image2
+            image1 = Image.fromarray(arr[0], mode='RGB')
+            image2 = Image.fromarray(arr[1], mode='RGB')
+
+            warp, certainty, _ = model.match_images(image1, image2)
+
+            warp = warp.cpu()
+            certainty = certainty.cpu()
+
+            data1 = warp.numpy().tobytes()
+            data2 = certainty.numpy().tobytes()
+
+            socket.send_multipart([data1, data2])
+
+            # x1 = model.image_to_tensor(image1)
+            # vis = model.create_warp_visualization(x1, warp, certainty)
+            # model.save_visualization(vis, "vis.jpg")
+    except KeyboardInterrupt:
+        print("\n[Server] Shutting down via Ctrl+C")
 
 
 if __name__ == "__main__":

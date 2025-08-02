@@ -11,4 +11,5 @@ h5py
 wandb
 timm
 poselib
+pyzmq
 #xformers # Optional, used for memefficient attention
