@@ -100,9 +100,12 @@ socket = context.socket(zmq.REP)
 socket.bind("tcp://*:5555")
 
 def main():
+    width = 1000
+    height = 750
+
     model = RoMaImageMatcher(
-        coarse_res=420,
-        upsample_res=(648, 864)
+        coarse_res=532,
+        upsample_res=(height, width)
     )
 
     try:
@@ -114,10 +117,10 @@ def main():
             arr = np.frombuffer(data, dtype=np.uint8)
 
             # Check that the size matches
-            assert arr.size == 2 * 3 * 648 * 864, f"Unexpected data size: {arr.size}"
+            assert arr.size == 2 * 3 * height * width, f"Unexpected data size: {arr.size}"
 
-            # Reshape to (2, 648, 864, 3)
-            arr = arr.reshape(2, 648, 864, 3)
+            # Reshape to (2, height, width, 3)
+            arr = arr.reshape(2, height, width, 3)
 
             # Split into image1 and image2
             image1 = Image.fromarray(arr[0], mode='RGB')
